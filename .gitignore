@@ -1,0 +1,5 @@
+# Ignore reusable material directory
+reusable material/
+
+# Ignore Python virtual environments
+.venv/

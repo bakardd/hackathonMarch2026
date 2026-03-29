@@ -4,11 +4,20 @@ import requests
 import time
 import math
 import argparse
+from ultralytics import YOLO
 
 API_URL = "http://localhost:8000/events/"
 
 mp_pose = mp.solutions.pose
 mp_face_mesh = mp.solutions.face_mesh
+
+# COCO class IDs for drink-related objects
+DRINK_CLASSES = {
+    39: "bottle",
+    40: "wine glass",
+    41: "cup",
+    45: "bowl",
+}
 
 # Landmark indices for eye openness (MediaPipe Face Mesh)
 LEFT_EYE_TOP = 159
@@ -61,7 +70,13 @@ def post_event(session_id, event_type, value, confidence=None):
 def run(session_id: int, camera_index: int = 0):
     cap = cv2.VideoCapture(camera_index)
     last_sent = 0
-    SEND_INTERVAL = 2  # seconds between events
+    last_yolo = 0
+    SEND_INTERVAL = 2  # seconds between posture/eye events
+    YOLO_INTERVAL = 3  # seconds between object detection runs (heavier)
+
+    # Load YOLOv8 nano model (auto-downloads ~6 MB on first run)
+    yolo_model = YOLO("yolov8n.pt")
+    print("[yolo] YOLOv8n loaded — detecting bottles, cups, glasses, bowls")
 
     with mp_pose.Pose(min_detection_confidence=0.5) as pose, \
          mp_face_mesh.FaceMesh(min_detection_confidence=0.5, max_num_faces=1) as face_mesh:
@@ -72,27 +87,45 @@ def run(session_id: int, camera_index: int = 0):
                 break
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pose_result = pose.process(rgb)
-            face_result = face_mesh.process(rgb)
-
             now = time.time()
-            if now - last_sent < SEND_INTERVAL:
-                continue
-            last_sent = now
 
-            # Posture
-            if pose_result.pose_landmarks:
-                posture, conf = analyze_posture(pose_result.pose_landmarks)
-                post_event(session_id, "posture", posture, conf)
-                print(f"[posture] {posture} ({conf})")
+            # --- MediaPipe: posture + eyes (every SEND_INTERVAL) ---
+            if now - last_sent >= SEND_INTERVAL:
+                pose_result = pose.process(rgb)
+                face_result = face_mesh.process(rgb)
+                last_sent = now
 
-            # Eyes
-            if face_result.multi_face_landmarks:
-                lm = face_result.multi_face_landmarks[0].landmark
-                ear = eye_aspect_ratio(lm, LEFT_EYE_TOP, LEFT_EYE_BOTTOM, LEFT_EYE_LEFT, LEFT_EYE_RIGHT)
-                eye_state = "closed" if ear < 0.15 else "open"
-                post_event(session_id, "eyes", eye_state, round(ear, 2))
-                print(f"[eyes] {eye_state} (EAR={ear:.2f})")
+                if pose_result.pose_landmarks:
+                    posture, conf = analyze_posture(pose_result.pose_landmarks)
+                    post_event(session_id, "posture", posture, conf)
+                    print(f"[posture] {posture} ({conf})")
+
+                if face_result.multi_face_landmarks:
+                    lm = face_result.multi_face_landmarks[0].landmark
+                    ear = eye_aspect_ratio(lm, LEFT_EYE_TOP, LEFT_EYE_BOTTOM, LEFT_EYE_LEFT, LEFT_EYE_RIGHT)
+                    eye_state = "closed" if ear < 0.15 else "open"
+                    post_event(session_id, "eyes", eye_state, round(ear, 2))
+                    print(f"[eyes] {eye_state} (EAR={ear:.2f})")
+
+            # --- YOLOv8: drink detection (every YOLO_INTERVAL) ---
+            if now - last_yolo >= YOLO_INTERVAL:
+                last_yolo = now
+                results = yolo_model(frame, verbose=False)
+                detected_drinks = []
+                for r in results:
+                    for box in r.boxes:
+                        cls_id = int(box.cls[0])
+                        if cls_id in DRINK_CLASSES:
+                            conf_val = float(box.conf[0])
+                            if conf_val >= 0.35:
+                                detected_drinks.append((DRINK_CLASSES[cls_id], conf_val))
+
+                if detected_drinks:
+                    best = max(detected_drinks, key=lambda x: x[1])
+                    post_event(session_id, "drinking", best[0], round(best[1], 2))
+                    print(f"[drinking] {best[0]} detected (conf={best[1]:.2f})")
+                else:
+                    post_event(session_id, "drinking", "none", 1.0)
 
             # Optional: show frame for debugging
             cv2.imshow("Camera Monitor (press q to quit)", frame)
