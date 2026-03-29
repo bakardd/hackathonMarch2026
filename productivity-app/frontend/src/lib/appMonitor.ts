@@ -7,6 +7,18 @@ export const APP_OPTIONS = [
   "Cursor",
   "Xcode",
   "Notion",
+  "Slack",
+  "Discord",
+  "Arc",
+  "Firefox",
+  "Brave Browser",
+  "Google Meet",
+  "Zoom",
+  "Microsoft Teams",
+  "Postman",
+  "Spotify",
+  "Obsidian",
+  "Finder",
 ] as const;
 
 const APP_ALIASES: Record<string, string> = {
@@ -20,6 +32,19 @@ const APP_ALIASES: Record<string, string> = {
   cursor: "Cursor",
   xcode: "Xcode",
   notion: "Notion",
+  slack: "Slack",
+  discord: "Discord",
+  arc: "Arc",
+  firefox: "Firefox",
+  brave: "Brave Browser",
+  "brave browser": "Brave Browser",
+  "google meet": "Google Meet",
+  zoom: "Zoom",
+  "microsoft teams": "Microsoft Teams",
+  postman: "Postman",
+  spotify: "Spotify",
+  obsidian: "Obsidian",
+  finder: "Finder",
   electron: "Electron",
 };
 
@@ -29,9 +54,10 @@ function normalizeKey(value: string) {
 
 export function canonicalizeAppName(appName: string) {
   const normalized = normalizeKey(appName);
-  return APP_ALIASES[normalized] ?? appName.trim();
+  const matchedOption = APP_OPTIONS.find((option) => normalizeKey(option) === normalized);
+  return APP_ALIASES[normalized] ?? matchedOption ?? appName.trim();
 }
 
 export function appMatchesSelection(detectedAppName: string, allowedAppName: string) {
-  return canonicalizeAppName(detectedAppName) === canonicalizeAppName(allowedAppName);
+  return normalizeKey(canonicalizeAppName(detectedAppName)) === normalizeKey(canonicalizeAppName(allowedAppName));
 }

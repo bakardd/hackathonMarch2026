@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, Play } from "lucide-react";
+import { Activity, ChevronDown, Play, X } from "lucide-react";
 import { startSession } from "../api/client";
 import { APP_OPTIONS } from "../lib/appMonitor";
 import { useSessionStore } from "../store/sessionStore";
@@ -10,9 +10,15 @@ export function Setup() {
   const [duration, setDuration] = useState(25);
   const [selectedApps, setSelectedApps] = useState<string[]>(["Visual Studio Code"]);
   const [customApp, setCustomApp] = useState("");
+  const [showAppDropdown, setShowAppDropdown] = useState(false);
+  const [appQuery, setAppQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const { setSession } = useSessionStore();
   const navigate = useNavigate();
+
+  const filteredApps = APP_OPTIONS.filter((appName) =>
+    appName.toLowerCase().includes(appQuery.trim().toLowerCase())
+  );
 
   const toggleApp = (appName: string) =>
     setSelectedApps((prev) =>
@@ -68,24 +74,70 @@ export function Setup() {
         <label className="mb-2 block text-xs font-semibold tracking-widest uppercase text-muted-fg">
           Which apps are allowed for this session?
         </label>
+        <div className="relative mb-4">
+          <button
+            type="button"
+            onClick={() => setShowAppDropdown((prev) => !prev)}
+            className="flex w-full items-center justify-between rounded-xl border border-border bg-secondary px-4 py-3 text-left text-fg"
+          >
+            <span className="truncate">
+              {selectedApps.length > 0 ? selectedApps.join(", ") : "Select allowed apps"}
+            </span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-muted-fg transition-transform ${showAppDropdown ? "rotate-180" : ""}`} />
+          </button>
+
+          {showAppDropdown && (
+            <div className="absolute z-20 mt-2 w-full rounded-xl border border-border bg-card p-2 shadow-2xl">
+              <input
+                value={appQuery}
+                onChange={(e) => setAppQuery(e.target.value)}
+                placeholder="Search apps..."
+                className="mb-2 w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-fg outline-none focus:ring-2 focus:ring-primary"
+              />
+              <div className="max-h-56 overflow-y-auto">
+                {filteredApps.length === 0 && (
+                  <div className="px-3 py-2 text-sm text-muted-fg">No preset matches. Add it below.</div>
+                )}
+                {filteredApps.map((appName) => {
+                  const isSelected = selectedApps.includes(appName);
+                  return (
+                    <button
+                      key={appName}
+                      type="button"
+                      onClick={() => toggleApp(appName)}
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
+                        isSelected
+                          ? "bg-primary text-primary-fg"
+                          : "text-muted-fg hover:bg-secondary hover:text-fg"
+                      }`}
+                    >
+                      <span>{appName}</span>
+                      {isSelected && <span className="text-xs font-semibold uppercase tracking-wider">Selected</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="mb-4 flex flex-wrap gap-2">
-          {APP_OPTIONS.map((appName) => {
-            const isSelected = selectedApps.includes(appName);
-            return (
+          {selectedApps.map((appName) => (
+            <span
+              key={appName}
+              className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-sm text-primary"
+            >
+              {appName}
               <button
-                key={appName}
                 type="button"
                 onClick={() => toggleApp(appName)}
-                className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
-                  isSelected
-                    ? "border-primary bg-primary text-primary-fg"
-                    : "border-border bg-secondary text-muted-fg hover:text-fg"
-                }`}
+                className="rounded-full p-0.5 hover:bg-primary/20"
+                aria-label={`Remove ${appName}`}
               >
-                {appName}
+                <X className="h-3.5 w-3.5" />
               </button>
-            );
-          })}
+            </span>
+          ))}
         </div>
 
         <div className="mb-6 flex gap-2">
