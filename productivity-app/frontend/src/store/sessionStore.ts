@@ -2,18 +2,8 @@ import { create } from "zustand";
 
 interface LiveSignals {
   posture: "good" | "bad" | null;
-  eyes: "open" | "closed" | "away" | null;
+  eyes: "open" | "closed" | null;
   activity: "focused" | "distracted" | "idle" | null;
-  drinking: string | null;
-}
-
-interface DistractionWarning {
-  visible: boolean;
-  currentApp: string | null;
-}
-
-interface MonitorStatus {
-  permissionError: string | null;
 }
 
 interface SessionState {
@@ -23,56 +13,37 @@ interface SessionState {
   isActive: boolean;
   signals: LiveSignals;
   allowedApps: string[];
-  distractionWarning: DistractionWarning;
-  monitorStatus: MonitorStatus;
+  distractionApp: string | null; // currently distracting app name, null if focused
+  permissionError: string | null;
+
   setSession: (id: number, goal: string, duration: number, allowedApps: string[]) => void;
   clearSession: () => void;
   updateSignal: (key: keyof LiveSignals, value: string) => void;
-  showDistractionWarning: (currentApp: string) => void;
-  hideDistractionWarning: () => void;
-  setPermissionError: (message: string | null) => void;
+  setDistractionApp: (app: string | null) => void;
+  setPermissionError: (msg: string | null) => void;
 }
+
+const EMPTY_SIGNALS: LiveSignals = { posture: null, eyes: null, activity: null };
 
 export const useSessionStore = create<SessionState>((set) => ({
   sessionId: null,
   goalText: "",
   durationMinutes: 25,
   isActive: false,
+  signals: EMPTY_SIGNALS,
   allowedApps: [],
-  distractionWarning: { visible: false, currentApp: null },
-  monitorStatus: { permissionError: null },
-  signals: { posture: null, eyes: null, activity: null, drinking: null },
+  distractionApp: null,
+  permissionError: null,
 
   setSession: (id, goal, duration, allowedApps) =>
-    set({
-      sessionId: id,
-      goalText: goal,
-      durationMinutes: duration,
-      isActive: true,
-      allowedApps,
-      distractionWarning: { visible: false, currentApp: null },
-      monitorStatus: { permissionError: null },
-    }),
+    set({ sessionId: id, goalText: goal, durationMinutes: duration, isActive: true, allowedApps, distractionApp: null, permissionError: null }),
 
   clearSession: () =>
-    set({
-      sessionId: null,
-      isActive: false,
-      allowedApps: [],
-      distractionWarning: { visible: false, currentApp: null },
-      monitorStatus: { permissionError: null },
-      signals: { posture: null, eyes: null, activity: null, drinking: null },
-    }),
+    set({ sessionId: null, isActive: false, allowedApps: [], distractionApp: null, permissionError: null, signals: EMPTY_SIGNALS }),
 
   updateSignal: (key, value) =>
     set((s) => ({ signals: { ...s.signals, [key]: value } })),
 
-  showDistractionWarning: (currentApp) =>
-    set({ distractionWarning: { visible: true, currentApp } }),
-
-  hideDistractionWarning: () =>
-    set({ distractionWarning: { visible: false, currentApp: null } }),
-
-  setPermissionError: (message) =>
-    set({ monitorStatus: { permissionError: message } }),
+  setDistractionApp: (app) => set({ distractionApp: app }),
+  setPermissionError: (msg) => set({ permissionError: msg }),
 }));

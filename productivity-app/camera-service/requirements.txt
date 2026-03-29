@@ -1,6 +1,3 @@
-# This camera service uses the legacy Pose/Face Mesh API (`mp.solutions.*`).
-# MediaPipe 0.10.31+ removed that top-level API from the Python package.
-mediapipe==0.10.21
+mediapipe>=0.10.30
 opencv-python>=4.9.0
 requests>=2.31.0
-ultralytics>=8.0.0

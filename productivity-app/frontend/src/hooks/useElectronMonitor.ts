@@ -3,116 +3,82 @@ import { logEvent } from "../api/client";
 import { appMatchesSelection, canonicalizeAppName } from "../lib/appMonitor";
 import { useSessionStore } from "../store/sessionStore";
 
-const DISTRACTING_APPS = ["YouTube", "Twitter", "Reddit", "TikTok", "Instagram", "Netflix"];
-const DISTRACTION_DELAY_MS = 4000;
-const ALWAYS_ALLOWED_APPS = ["Electron"];
-
-function classifyApp(appName: string, title: string): "focused" | "distracted" {
-  if (DISTRACTING_APPS.some((d) => title.includes(d) || appName.includes(d))) {
-    return "distracted";
-  }
-  return "focused";
-}
+const DISTRACTION_DELAY_MS = 4000; // grace period before alerting
+const ALWAYS_ALLOWED = ["Electron"];
 
 export function useElectronMonitor() {
-  const {
-    sessionId,
-    allowedApps,
-    updateSignal,
-    showDistractionWarning,
-    hideDistractionWarning,
-    setPermissionError,
-  } = useSessionStore();
-  const activeWarningAppRef = useRef<string | null>(null);
+  const { sessionId, allowedApps, updateSignal, setDistractionApp, setPermissionError } =
+    useSessionStore();
+  const activeWarningApp = useRef<string | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
 
-    // Only runs inside Electron
     const api = (window as any).electronAPI;
-    if (!api) return;
+    if (!api) return; // no-op in browser mode
+
     let distractionTimer: ReturnType<typeof setTimeout> | null = null;
     let warnedApp: string | null = null;
 
-    const clearDistractionTimer = () => {
-      if (!distractionTimer) return;
-      clearTimeout(distractionTimer);
-      distractionTimer = null;
+    const clearTimer = () => {
+      if (distractionTimer) { clearTimeout(distractionTimer); distractionTimer = null; }
     };
 
-    const isAllowedApp = (appName: string) =>
-      ALWAYS_ALLOWED_APPS.some((allowedApp) => appMatchesSelection(appName, allowedApp))
-      || allowedApps.some((allowedApp) => appMatchesSelection(appName, allowedApp));
+    const isAllowed = (name: string) =>
+      ALWAYS_ALLOWED.some((a) => appMatchesSelection(name, a)) ||
+      allowedApps.some((a: string) => appMatchesSelection(name, a));
 
     api.onActivity((data: { app: string; title: string }) => {
       setPermissionError(null);
-      const detectedAppName = canonicalizeAppName(data.app);
-      const state = classifyApp(detectedAppName, data.title);
-      const appIsAllowed = allowedApps.length === 0 || isAllowedApp(detectedAppName);
-      const nextState = appIsAllowed ? state : "distracted";
+      const name = canonicalizeAppName(data.app);
 
-      // The warning overlay itself can temporarily make Electron the active app.
-      // Do not auto-clear the warning just because focus moved to our own overlay window.
-      if (detectedAppName === "Electron" && activeWarningAppRef.current) {
-        return;
-      }
+      // Ignore focus events from our own overlay window
+      if (name === "Electron" && activeWarningApp.current) return;
 
-      updateSignal("activity", nextState);
-
-      if (appIsAllowed) {
-        clearDistractionTimer();
+      if (isAllowed(name)) {
+        clearTimer();
         warnedApp = null;
-        activeWarningAppRef.current = null;
-        hideDistractionWarning();
+        activeWarningApp.current = null;
+        setDistractionApp(null);
+        updateSignal("activity", "focused");
         api.hideDistractionOverlay?.();
-        logEvent({
-          session_id: sessionId,
-          type: "activity",
-          value: nextState,
-          app_name: detectedAppName,
-        });
+        logEvent({ session_id: sessionId, type: "activity", value: "focused", app_name: name });
         return;
       }
 
-      if (warnedApp === detectedAppName || distractionTimer) return;
+      // Already warned about this app — don't re-fire
+      if (warnedApp === name || distractionTimer) return;
 
-      clearDistractionTimer();
+      clearTimer();
       distractionTimer = setTimeout(() => {
-        warnedApp = detectedAppName;
-        activeWarningAppRef.current = detectedAppName;
-        showDistractionWarning(detectedAppName);
-        api.notifyDistraction?.(detectedAppName);
-        api.showDistractionOverlay?.({ currentApp: detectedAppName, allowedApps });
-        logEvent({
-          session_id: sessionId,
-          type: "activity",
-          value: "distracted",
-          app_name: detectedAppName,
-        });
+        warnedApp = name;
+        activeWarningApp.current = name;
+        setDistractionApp(name);
+        updateSignal("activity", "distracted");
+        api.notifyDistraction?.(name);
+        api.showDistractionOverlay?.({ currentApp: name, allowedApps });
+        logEvent({ session_id: sessionId, type: "activity", value: "distracted", app_name: name });
         distractionTimer = null;
       }, DISTRACTION_DELAY_MS);
     });
 
     api.onActivityError?.((data: { message: string }) => {
-      clearDistractionTimer();
-      activeWarningAppRef.current = null;
+      clearTimer();
+      activeWarningApp.current = null;
       api.hideDistractionOverlay?.();
       setPermissionError(data.message);
     });
 
     api.onIdle((data: { idle: boolean }) => {
       if (data.idle) {
-        clearDistractionTimer();
-        activeWarningAppRef.current = null;
+        clearTimer();
+        activeWarningApp.current = null;
         api.hideDistractionOverlay?.();
         updateSignal("activity", "idle");
         logEvent({ session_id: sessionId, type: "idle", value: "true" });
       }
     });
 
-    return () => {
-      clearDistractionTimer();
-      activeWarningAppRef.current = null;
-    };
-  }, [allowedApps, hideDistractionWarning, sessionId, setPermissionError, showDistractionWarning, updateSignal]);
+    return () => clearTimer();
+  }, [allowedApps, sessionId, setDistractionApp, setPermissionError, updateSignal]);
 }

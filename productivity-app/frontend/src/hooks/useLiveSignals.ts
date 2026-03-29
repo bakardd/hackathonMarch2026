@@ -11,10 +11,9 @@ export function useLiveSignals() {
 
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data);
-      if (data.type === "posture") updateSignal("posture", data.value);
-      if (data.type === "eyes") updateSignal("eyes", data.value);
+      if (data.type === "posture")  updateSignal("posture",  data.value);
+      if (data.type === "eyes")     updateSignal("eyes",     data.value);
       if (data.type === "activity") updateSignal("activity", data.value);
-      if (data.type === "drinking") updateSignal("drinking", data.value);
     };
 
     return () => ws.close();

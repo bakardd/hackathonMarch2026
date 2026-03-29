@@ -96,21 +96,22 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow();
 
-  // Active window tracking (requires active-win)
-  let activeWin;
+  // Active window tracking — active-win v7 is ESM-only, use dynamic import
+  let activeWinFn;
   try {
-    activeWin = require("active-win");
+    const mod = await import("active-win");
+    activeWinFn = mod.default ?? mod.activeWindow;
   } catch {
     console.warn("active-win not available, skipping window tracking");
   }
 
-  if (activeWin) {
+  if (activeWinFn) {
     setInterval(async () => {
       try {
-        const win = await activeWin();
+        const win = await activeWinFn();
         if (!win || !mainWindow) return;
         mainWindow.webContents.send("activity-update", {
           app: win.owner.name,
@@ -120,7 +121,7 @@ app.whenReady().then(() => {
       } catch (error) {
         if (!mainWindow) return;
         mainWindow.webContents.send("activity-error", {
-          message: error && error.message ? error.message : "Unable to read active window information.",
+          message: error?.message ?? "Unable to read active window information.",
           timestamp: Date.now(),
         });
       }
