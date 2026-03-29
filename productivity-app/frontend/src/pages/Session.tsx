@@ -28,7 +28,16 @@ function formatMinutesAgo(ts: number | null): string {
 }
 
 export function Session() {
-  const { sessionId, goalText, durationMinutes, signals, clearSession } = useSessionStore();
+  const {
+    sessionId,
+    durationMinutes,
+    signals,
+    allowedApps,
+    distractionWarning,
+    monitorStatus,
+    hideDistractionWarning,
+    clearSession,
+  } = useSessionStore();
   const navigate = useNavigate();
 
   const [postureScore, setPostureScore] = useState(100);
@@ -127,6 +136,37 @@ export function Session() {
   return (
     <div className="min-h-screen bg-bg p-6 max-w-[1400px] mx-auto">
       {showModal && <CheckinModal onSubmit={submitCheckin} />}
+      {monitorStatus.permissionError && (
+        <div className="mb-4 rounded-2xl border border-status-warning/40 bg-status-warning/10 px-4 py-3 text-sm text-status-warning">
+          <p className="font-semibold uppercase tracking-widest">App monitoring unavailable</p>
+          <p className="mt-1">{monitorStatus.permissionError}</p>
+          <p className="mt-1 text-xs opacity-80">
+            Check macOS `System Settings {" > "} Privacy & Security {" > "} Accessibility`, then fully restart Electron.
+          </p>
+        </div>
+      )}
+      {distractionWarning.visible && (
+        <div className="fixed inset-x-0 top-4 z-50 mx-auto w-full max-w-md rounded-2xl border border-status-danger/40 bg-card p-4 shadow-2xl">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-widest text-status-danger">Distraction detected</p>
+              <p className="mt-2 text-fg">
+                You switched to <span className="font-semibold">{distractionWarning.currentApp}</span>, which is outside your selected work apps.
+              </p>
+              <p className="mt-1 text-xs text-muted-fg">
+                Allowed: {allowedApps.join(", ")}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={hideDistractionWarning}
+              className="rounded-lg border border-border px-3 py-1 text-xs font-semibold text-muted-fg hover:text-fg"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-start justify-between mb-2">

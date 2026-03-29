@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron": "electron .",
+    "electron": "node electron/dev.cjs",
+    "electron:app": "electron .",
     "electron:build": "npm run build && electron-builder"
   },
   "dependencies": {

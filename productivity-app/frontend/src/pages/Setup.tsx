@@ -2,20 +2,35 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, Play } from "lucide-react";
 import { startSession } from "../api/client";
+import { APP_OPTIONS } from "../lib/appMonitor";
 import { useSessionStore } from "../store/sessionStore";
 
 export function Setup() {
   const [goal, setGoal] = useState("");
   const [duration, setDuration] = useState(25);
+  const [selectedApps, setSelectedApps] = useState<string[]>(["Visual Studio Code"]);
+  const [customApp, setCustomApp] = useState("");
   const [loading, setLoading] = useState(false);
   const { setSession } = useSessionStore();
   const navigate = useNavigate();
 
+  const toggleApp = (appName: string) =>
+    setSelectedApps((prev) =>
+      prev.includes(appName) ? prev.filter((item) => item !== appName) : [...prev, appName]
+    );
+
+  const addCustomApp = () => {
+    const normalized = customApp.trim();
+    if (!normalized || selectedApps.includes(normalized)) return;
+    setSelectedApps((prev) => [...prev, normalized]);
+    setCustomApp("");
+  };
+
   const handleStart = async () => {
-    if (!goal.trim()) return;
+    if (!goal.trim() || selectedApps.length === 0) return;
     setLoading(true);
     const { session_id } = await startSession(goal, duration);
-    setSession(session_id, goal, duration);
+    setSession(session_id, goal, duration, selectedApps);
     navigate("/session");
   };
 
@@ -50,9 +65,54 @@ export function Setup() {
           onChange={(e) => setDuration(Number(e.target.value))}
         />
 
+        <label className="mb-2 block text-xs font-semibold tracking-widest uppercase text-muted-fg">
+          Which apps are allowed for this session?
+        </label>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {APP_OPTIONS.map((appName) => {
+            const isSelected = selectedApps.includes(appName);
+            return (
+              <button
+                key={appName}
+                type="button"
+                onClick={() => toggleApp(appName)}
+                className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                  isSelected
+                    ? "border-primary bg-primary text-primary-fg"
+                    : "border-border bg-secondary text-muted-fg hover:text-fg"
+                }`}
+              >
+                {appName}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mb-6 flex gap-2">
+          <input
+            className="w-full rounded-xl border border-border bg-secondary px-4 py-3 text-fg outline-none transition-shadow focus:ring-2 focus:ring-primary"
+            placeholder="Add another app, e.g. Slack"
+            value={customApp}
+            onChange={(e) => setCustomApp(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addCustomApp();
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={addCustomApp}
+            className="rounded-xl border border-border px-4 text-sm font-semibold text-fg hover:bg-white/5"
+          >
+            Add
+          </button>
+        </div>
+
         <button
           onClick={handleStart}
-          disabled={loading || !goal.trim()}
+          disabled={loading || !goal.trim() || selectedApps.length === 0}
           className="w-full py-4 rounded-xl bg-primary text-primary-fg font-bold text-lg hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center gap-2"
         >
           <Play className="w-5 h-5" />
