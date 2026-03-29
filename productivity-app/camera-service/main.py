@@ -34,7 +34,7 @@ def analyze_posture(landmarks) -> tuple[str, float]:
 
     shoulder_slope = abs(left_sh.y - right_sh.y)
     shoulder_mid_y = (left_sh.y + right_sh.y) / 2
-    head_height    = shoulder_mid_y - nose.y  # positive = head above shoulders
+    head_height    = shoulder_mid_y - nose.y  #positive = head above shoulders
 
     bad = shoulder_slope > 0.05 or head_height < 0.15
     conf = round(max(0.0, 1.0 - shoulder_slope * 10), 2)
