@@ -28,7 +28,7 @@ export function useElectronMonitor() {
       ALWAYS_ALLOWED.some((a) => appMatchesSelection(name, a)) ||
       allowedApps.some((a: string) => appMatchesSelection(name, a));
 
-    api.onActivity((data: { app: string; title: string }) => {
+    const unsubscribeActivity = api.onActivity?.((data: { app: string; title: string }) => {
       setPermissionError(null);
       const name = canonicalizeAppName(data.app);
 
@@ -62,23 +62,34 @@ export function useElectronMonitor() {
       }, DISTRACTION_DELAY_MS);
     });
 
-    api.onActivityError?.((data: { message: string }) => {
+    const unsubscribeActivityError = api.onActivityError?.((data: { message: string }) => {
       clearTimer();
       activeWarningApp.current = null;
+      setDistractionApp(null);
       api.hideDistractionOverlay?.();
       setPermissionError(data.message);
     });
 
-    api.onIdle((data: { idle: boolean }) => {
+    const unsubscribeIdle = api.onIdle?.((data: { idle: boolean }) => {
       if (data.idle) {
         clearTimer();
         activeWarningApp.current = null;
+        setDistractionApp(null);
         api.hideDistractionOverlay?.();
         updateSignal("activity", "idle");
         logEvent({ session_id: sessionId, type: "idle", value: "true" });
       }
     });
 
-    return () => clearTimer();
+    return () => {
+      clearTimer();
+      activeWarningApp.current = null;
+      warnedApp = null;
+      setDistractionApp(null);
+      api.hideDistractionOverlay?.();
+      unsubscribeActivity?.();
+      unsubscribeActivityError?.();
+      unsubscribeIdle?.();
+    };
   }, [allowedApps, sessionId, setDistractionApp, setPermissionError, updateSignal]);
 }

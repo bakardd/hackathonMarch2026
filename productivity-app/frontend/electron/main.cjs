@@ -30,7 +30,7 @@ function createWarningWindow() {
     transparent: true,
     alwaysOnTop: true,
     movable: false,
-    focusable: true,
+    focusable: false,
     hasShadow: true,
     webPreferences: {
       contextIsolation: true,
@@ -67,7 +67,6 @@ function showWarningWindow(currentApp, allowedApps = []) {
   win.center();
   win.show();
   win.moveTop();
-  win.focus();
 }
 
 function hideWarningWindow() {
