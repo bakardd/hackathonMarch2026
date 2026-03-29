@@ -1,8 +1,9 @@
-.PHONY: install backend frontend electron camera test seed
+.PHONY: install backend frontend electron camera menubar test seed
 
 install:
 	cd backend && pip install -r requirements.txt
 	cd camera-service && pip install -r requirements.txt
+	cd menu-bar && pip install -r requirements.txt
 	cd frontend && npm install
 
 backend:
@@ -17,6 +18,10 @@ electron:
 camera:
 	@echo "Starting camera for SESSION=$(SESSION) CAMERA=$(or $(CAMERA),0)"
 	cd camera-service && python main.py --session $(SESSION) --camera $(or $(CAMERA),0)
+
+menubar:
+	@echo "Starting menu bar for SESSION=$(SESSION)"
+	cd menu-bar && python app.py --session $(SESSION)
 
 test:
 	cd backend && python -m pytest tests/ -v

@@ -3,23 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { Activity, Square, RefreshCw } from "lucide-react";
 import { useSessionStore } from "../store/sessionStore";
 import { useActivityMonitor } from "../hooks/useActivityMonitor";
-import { useCheckins } from "../hooks/useCheckins";
 import { useLiveSignals } from "../hooks/useLiveSignals";
 import { useElectronMonitor } from "../hooks/useElectronMonitor";
 import { endSession } from "../api/client";
-import { CheckinModal } from "../components/CheckinModal";
-import { ScoreRing } from "../components/ScoreRing";
 import { StatCard } from "../components/StatCard";
-import { AlertFeed, type Alert } from "../components/AlertFeed";
-import { ActivityChart, type DataPoint } from "../components/ActivityChart";
+import { LiveStats } from "../components/LiveStats";
 import { SessionTimer } from "../components/SessionTimer";
 import { StatusIndicator } from "../components/StatusIndicator";
-import { WebcamPanel } from "../components/WebcamPanel";
-
-function signalToScore(value: string | null, goodValues: string[]): number {
-  if (!value) return 100;
-  return goodValues.includes(value) ? 100 : Math.floor(Math.random() * 30 + 30);
-}
 
 function formatMinutesAgo(ts: number | null): string {
   if (ts === null) return "—";
@@ -40,12 +30,8 @@ export function Session() {
   } = useSessionStore();
   const navigate = useNavigate();
 
-  const [postureScore, setPostureScore] = useState(100);
-  const [attentionScore, setAttentionScore] = useState(100);
   const [distractions, setDistractions] = useState(0);
   const [postureAlerts, setPostureAlerts] = useState(0);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [chartData, setChartData] = useState<DataPoint[]>([]);
   const [tab, setTab] = useState<"monitor" | "history">("monitor");
   const [lastWaterBreak, setLastWaterBreak] = useState<number | null>(null);
   const [waterBreakLabel, setWaterBreakLabel] = useState("—");
@@ -53,7 +39,6 @@ export function Session() {
   useActivityMonitor();
   useLiveSignals();
   useElectronMonitor();
-  const { showModal, submitCheckin } = useCheckins();
 
   useEffect(() => {
     if (!sessionId) { navigate("/"); return; }
@@ -63,48 +48,14 @@ export function Session() {
   useEffect(() => {
     if (!sessionId) return;
 
-    const newPosture = signalToScore(signals.posture, ["good"]);
-    const newAttention = signalToScore(signals.eyes, ["open"]);
-    setPostureScore(newPosture);
-    setAttentionScore(newAttention);
-
-    const now = new Date();
-    const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-
-    setChartData((prev) => [...prev.slice(-30), { time: timeStr, posture: newPosture, attention: newAttention }]);
-
-    if (signals.posture === "bad") {
-      setPostureAlerts((p) => p + 1);
-      setAlerts((a) => [
-        { id: crypto.randomUUID(), message: "Poor posture detected — sit up straight!", type: "warning", time: timeStr },
-        ...a.slice(0, 19),
-      ]);
-    }
-    if (signals.eyes === "away" || signals.eyes === "closed") {
-      setDistractions((d) => d + 1);
-      setAlerts((a) => [
-        { id: crypto.randomUUID(), message: "Eyes off screen — stay focused!", type: "danger", time: timeStr },
-        ...a.slice(0, 19),
-      ]);
-    }
-    if (signals.activity === "idle") {
-      setAlerts((a) => [
-        { id: crypto.randomUUID(), message: "Idle detected — are you still there?", type: "info", time: timeStr },
-        ...a.slice(0, 19),
-      ]);
-    }
+    if (signals.posture === "bad") setPostureAlerts((p) => p + 1);
+    if (signals.eyes === "away" || signals.eyes === "closed") setDistractions((d) => d + 1);
   }, [signals, sessionId]);
 
   // Auto-detect water consumption via camera (cup/bottle/glass detected)
   useEffect(() => {
     if (!signals.drinking || signals.drinking === "none") return;
     setLastWaterBreak(Date.now());
-    const now = new Date();
-    const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-    setAlerts((a) => [
-      { id: crypto.randomUUID(), message: `Water break detected — ${signals.drinking} spotted! 💧`, type: "info", time: timeStr },
-      ...a.slice(0, 19),
-    ]);
   }, [signals.drinking]);
 
   // Update water break label every 10 seconds
@@ -118,11 +69,7 @@ export function Session() {
     setLastWaterBreak(Date.now());
   }, []);
 
-  const handleDismissAlert = useCallback((id: string) => {
-    setAlerts((prev) => prev.filter((a) => a.id !== id));
-  }, []);
-
-  const handleEnd = useCallback(async () => {
+const handleEnd = useCallback(async () => {
     if (!sessionId) return;
     await endSession(sessionId);
     navigate(`/summary/${sessionId}`);
@@ -135,7 +82,6 @@ export function Session() {
 
   return (
     <div className="min-h-screen bg-bg p-6 max-w-[1400px] mx-auto">
-      {showModal && <CheckinModal onSubmit={submitCheckin} />}
       {monitorStatus.permissionError && (
         <div className="mb-4 rounded-2xl border border-status-warning/40 bg-status-warning/10 px-4 py-3 text-sm text-status-warning">
           <p className="font-semibold uppercase tracking-widest">App monitoring unavailable</p>
@@ -221,37 +167,25 @@ export function Session() {
       {tab === "monitor" ? (
         /* 3-Column Dashboard */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Col 1: Webcam + Timer + Status */}
+          {/* Col 1: Timer + Status */}
           <div className="flex flex-col gap-4">
-            <WebcamPanel isActive={!!sessionId} />
             <SessionTimer isRunning={!!sessionId} totalSeconds={durationMinutes * 60} />
             <StatusIndicator isActive={!!sessionId} label={eyeStatus} ok={eyeOk} />
           </div>
 
-          {/* Col 2: Score Rings + Stats */}
+          {/* Col 2: Stats */}
           <div className="flex flex-col gap-4">
-            <div className="rounded-xl border border-border bg-card p-6">
-              <span className="text-xs font-semibold tracking-widest uppercase text-muted-fg">Live Scores</span>
-              <div className="flex items-center justify-center gap-8 mt-4">
-                <ScoreRing score={postureScore} maxScore={100} label="Posture" />
-                <ScoreRing score={attentionScore} maxScore={100} label="Attention" />
-              </div>
-            </div>
             <div className="grid grid-cols-2 gap-4">
-              <StatCard title="Focus Streak" value={`${chartData.length}`} subtitle="Continuous focus" icon="🎯" />
+              <StatCard title="Focus Streak" value={`${postureAlerts + distractions}`} subtitle="Total alerts" icon="🎯" />
               <StatCard title="Water Break" value={waterBreakLabel} subtitle="Hydration timer" icon="💧" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <StatCard title="Distractions" value={distractions} subtitle="Eyes off screen" icon="👀" />
               <StatCard title="Posture Alerts" value={postureAlerts} subtitle="This session" icon="🏋" />
             </div>
+            {sessionId && <LiveStats sessionId={sessionId} />}
           </div>
 
-          {/* Col 3: Chart + Alerts */}
-          <div className="flex flex-col gap-4">
-            <ActivityChart data={chartData} />
-            <AlertFeed alerts={alerts} onDismiss={handleDismissAlert} />
-          </div>
         </div>
       ) : (
         /* History tab placeholder */

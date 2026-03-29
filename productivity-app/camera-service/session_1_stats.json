@@ -1,0 +1,17 @@
+{
+  "total_s": 41.9,
+  "eyes": {
+    "on_screen_s": 27.0,
+    "closed_s": 0.0,
+    "away_s": 14.1,
+    "away_total_s": 14.1,
+    "on_pct": 65.8,
+    "away_pct": 34.2
+  },
+  "posture": {
+    "good_s": 23.0,
+    "bad_s": 10.0,
+    "good_pct": 69.6,
+    "bad_pct": 30.4
+  }
+}
