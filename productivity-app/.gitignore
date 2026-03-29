@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.sqlite3
+.venv/
+*.egg-info/
+
+# MediaPipe models (downloaded at runtime)
+camera-service/*.task
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Env
+.env
+frontend/.env
+
+# OS
+.DS_Store

@@ -1,60 +1,60 @@
 import cv2
-import mediapipe as mp
 import requests
 import time
-import math
 import argparse
-from ultralytics import YOLO
+import os
+import urllib.request
+
+import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
 
 API_URL = "http://localhost:8000/events/"
 
-mp_pose = mp.solutions.pose
-mp_face_mesh = mp.solutions.face_mesh
+POSE_MODEL = "pose_landmarker_lite.task"
+FACE_MODEL = "face_landmarker.task"
 
-# COCO class IDs for drink-related objects
-DRINK_CLASSES = {
-    39: "bottle",
-    40: "wine glass",
-    41: "cup",
-    45: "bowl",
+MODELS = {
+    POSE_MODEL: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
+    FACE_MODEL: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
 }
 
-# Landmark indices for eye openness (MediaPipe Face Mesh)
-LEFT_EYE_TOP = 159
-LEFT_EYE_BOTTOM = 145
-LEFT_EYE_LEFT = 33
-LEFT_EYE_RIGHT = 133
+def ensure_models():
+    for filename, url in MODELS.items():
+        if not os.path.exists(filename):
+            print(f"Downloading {filename}...")
+            urllib.request.urlretrieve(url, filename)
+            print(f"  Done.")
 
-def eye_aspect_ratio(landmarks, top, bottom, left, right):
-    """Simple EAR to detect closed/open eyes."""
-    h = abs(landmarks[top].y - landmarks[bottom].y)
-    w = abs(landmarks[left].x - landmarks[right].x)
-    return h / (w + 1e-6)
+def analyze_posture(landmarks) -> tuple[str, float]:
+    # Indices: 11=left shoulder, 12=right shoulder, 0=nose
+    left_sh  = landmarks[11]
+    right_sh = landmarks[12]
+    nose     = landmarks[0]
 
-def analyze_posture(pose_landmarks):
-    """
-    Returns 'good' or 'bad' based on shoulder slope and head forward position.
-    Uses normalized coordinates (0-1).
-    """
-    lm = pose_landmarks.landmark
+    shoulder_slope = abs(left_sh.y - right_sh.y)
+    shoulder_mid_y = (left_sh.y + right_sh.y) / 2
+    head_height    = shoulder_mid_y - nose.y  # positive = head above shoulders
 
-    left_shoulder = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
-    right_shoulder = lm[mp_pose.PoseLandmark.RIGHT_SHOULDER]
-    nose = lm[mp_pose.PoseLandmark.NOSE]
+    bad = shoulder_slope > 0.05 or head_height < 0.15
+    conf = round(max(0.0, 1.0 - shoulder_slope * 10), 2)
+    return ("bad" if bad else "good"), conf
 
-    # Shoulder slope (should be near 0 for upright)
-    slope = abs(left_shoulder.y - right_shoulder.y)
-
-    # Head forward: nose x should be between shoulders
-    shoulder_mid_x = (left_shoulder.x + right_shoulder.x) / 2
-    head_offset = abs(nose.x - shoulder_mid_x)
-
-    # Head height relative to shoulders (slouching = nose closer to shoulders)
-    shoulder_mid_y = (left_shoulder.y + right_shoulder.y) / 2
-    head_height = shoulder_mid_y - nose.y  # positive = head above shoulders
-
-    bad = slope > 0.05 or head_height < 0.15
-    return "bad" if bad else "good", round(1 - slope, 2)
+def analyze_eyes(face_landmarks) -> tuple[str, float]:
+    # Left eye: top=159, bottom=145, left=33, right=133
+    lm = face_landmarks
+    try:
+        top    = lm[159]
+        bottom = lm[145]
+        left   = lm[33]
+        right  = lm[133]
+        h = abs(top.y - bottom.y)
+        w = abs(left.x - right.x) + 1e-6
+        ear = h / w
+        state = "closed" if ear < 0.15 else "open"
+        return state, round(ear, 3)
+    except (IndexError, AttributeError):
+        return "open", 0.0
 
 def post_event(session_id, event_type, value, confidence=None):
     try:
@@ -65,79 +65,72 @@ def post_event(session_id, event_type, value, confidence=None):
             "confidence": confidence,
         }, timeout=1)
     except Exception:
-        pass  # Don't crash if backend is down
+        pass
 
 def run(session_id: int, camera_index: int = 0):
+    ensure_models()
+
+    pose_landmarker = mp_vision.PoseLandmarker.create_from_options(
+        mp_vision.PoseLandmarkerOptions(
+            base_options=mp_python.BaseOptions(model_asset_path=POSE_MODEL),
+            running_mode=mp_vision.RunningMode.IMAGE,
+        )
+    )
+
+    face_landmarker = mp_vision.FaceLandmarker.create_from_options(
+        mp_vision.FaceLandmarkerOptions(
+            base_options=mp_python.BaseOptions(model_asset_path=FACE_MODEL),
+            running_mode=mp_vision.RunningMode.IMAGE,
+            num_faces=1,
+        )
+    )
+
     cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        print(f"Error: could not open camera {camera_index}")
+        return
+
+    print(f"Camera service running for session {session_id}. Press q to quit.")
     last_sent = 0
-    last_yolo = 0
-    SEND_INTERVAL = 2  # seconds between posture/eye events
-    YOLO_INTERVAL = 3  # seconds between object detection runs (heavier)
+    SEND_INTERVAL = 2  # seconds between events
 
-    # Load YOLOv8 nano model (auto-downloads ~6 MB on first run)
-    yolo_model = YOLO("yolov8n.pt")
-    print("[yolo] YOLOv8n loaded — detecting bottles, cups, glasses, bowls")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    with mp_pose.Pose(min_detection_confidence=0.5) as pose, \
-         mp_face_mesh.FaceMesh(min_detection_confidence=0.5, max_num_faces=1) as face_mesh:
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
+        now = time.time()
+        if now - last_sent >= SEND_INTERVAL:
+            last_sent = now
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            now = time.time()
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-            # --- MediaPipe: posture + eyes (every SEND_INTERVAL) ---
-            if now - last_sent >= SEND_INTERVAL:
-                pose_result = pose.process(rgb)
-                face_result = face_mesh.process(rgb)
-                last_sent = now
+            # Posture
+            pose_result = pose_landmarker.detect(mp_image)
+            if pose_result.pose_landmarks:
+                posture, conf = analyze_posture(pose_result.pose_landmarks[0])
+                post_event(session_id, "posture", posture, conf)
+                print(f"[posture] {posture} (conf={conf})")
 
-                if pose_result.pose_landmarks:
-                    posture, conf = analyze_posture(pose_result.pose_landmarks)
-                    post_event(session_id, "posture", posture, conf)
-                    print(f"[posture] {posture} ({conf})")
+            # Eyes
+            face_result = face_landmarker.detect(mp_image)
+            if face_result.face_landmarks:
+                eye_state, ear = analyze_eyes(face_result.face_landmarks[0])
+                post_event(session_id, "eyes", eye_state, ear)
+                print(f"[eyes]    {eye_state} (EAR={ear})")
 
-                if face_result.multi_face_landmarks:
-                    lm = face_result.multi_face_landmarks[0].landmark
-                    ear = eye_aspect_ratio(lm, LEFT_EYE_TOP, LEFT_EYE_BOTTOM, LEFT_EYE_LEFT, LEFT_EYE_RIGHT)
-                    eye_state = "closed" if ear < 0.15 else "open"
-                    post_event(session_id, "eyes", eye_state, round(ear, 2))
-                    print(f"[eyes] {eye_state} (EAR={ear:.2f})")
-
-            # --- YOLOv8: drink detection (every YOLO_INTERVAL) ---
-            if now - last_yolo >= YOLO_INTERVAL:
-                last_yolo = now
-                results = yolo_model(frame, verbose=False)
-                detected_drinks = []
-                for r in results:
-                    for box in r.boxes:
-                        cls_id = int(box.cls[0])
-                        if cls_id in DRINK_CLASSES:
-                            conf_val = float(box.conf[0])
-                            if conf_val >= 0.35:
-                                detected_drinks.append((DRINK_CLASSES[cls_id], conf_val))
-
-                if detected_drinks:
-                    best = max(detected_drinks, key=lambda x: x[1])
-                    post_event(session_id, "drinking", best[0], round(best[1], 2))
-                    print(f"[drinking] {best[0]} detected (conf={best[1]:.2f})")
-                else:
-                    post_event(session_id, "drinking", "none", 1.0)
-
-            # Optional: show frame for debugging
-            cv2.imshow("Camera Monitor (press q to quit)", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+        cv2.imshow("Camera Monitor (press q to quit)", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
     cap.release()
     cv2.destroyAllWindows()
+    pose_landmarker.close()
+    face_landmarker.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--session", type=int, required=True, help="Session ID")
-    parser.add_argument("--camera", type=int, default=0, help="Camera index (default 0)")
+    parser.add_argument("--session", type=int, required=True)
+    parser.add_argument("--camera",  type=int, default=0)
     args = parser.parse_args()
     run(args.session, args.camera)
