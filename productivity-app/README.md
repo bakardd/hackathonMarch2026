@@ -14,6 +14,9 @@ Real-time focus tracking using posture detection, eye monitoring, and desktop ac
 # 1. Install everything
 make install
 
+# If camera-service was installed earlier, refresh its Python deps after pulling:
+# .venv/bin/pip install -r camera-service/requirements.txt --upgrade --force-reinstall
+
 # 2. Start backend (terminal 1)
 make backend
 
